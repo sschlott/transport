@@ -225,15 +225,13 @@ def checksum16(data):
     '''
     that takes a Python bytes object and returns an integer representing 
     the 16-bit checksum of the bytes in data.
+
+    Worked w Sarah Strand
     '''
-    halfWords = []
-    for i in range(length(data)):
-        halfWords.append(data[i] << 8 | data[i+1])
-        i+=2
-    print(halfWords)
     tally = 0
-    for word in halfWords:
-        tally += word
-        if tally >= 2**16:
-            tally += 1
-        return tally%(2**16) 
+    for i in range(0,len(data),2):
+        halfWord = (data[i] << 8 | data[i+1])
+        tally += halfWord
+        while tally >= 2**16:
+            tally = (tally % 2**16) +1 
+    return tally

@@ -9,7 +9,7 @@ This module implements the starter version of the TCP simulator assignment.
 # For Problem 1, you will need to add more state information to both the
 # TCPClient and TCPServer classes to keep track of which bytes have been
 # acknowledged.  You will also need to implement a new TCPEvent subclass
-# called TimeoutEvent that implements the response to a packet timeout.
+# called TimeoutEvent that implements the response to a packet timeout. (CHECK)
 # Sending a packet should also post a TimeoutEvent for a later time.
 # If the packet has been acknowledged, the TimeoutEvent handler can simply
 # ignore it.  If not, the TimeoutEvent handler should resend the packet.
@@ -24,7 +24,7 @@ This module implements the starter version of the TCP simulator assignment.
 # number of unacknowledged packets and to pay attention to the receive
 # window in the acknowledgments that come in from the server.
 
-from packet import TCPPacket
+from packet import TCPPacket,checksum16
 from pqueue import PriorityQueue
 import random
 # Constants
@@ -35,7 +35,7 @@ LOST_PACKET_PROBABILITY = 0.25
 ROUND_TRIP_TIME = 2 * TRANSMISSION_DELAY
 TIMEOUT = 2 * ROUND_TRIP_TIME
 
-EVENT_TRACE = False              # Set this flag to enable event tracing
+EVENT_TRACE = True              # Set this flag to enable event tracing
 
 def TCPSimulator():
     """
@@ -50,6 +50,8 @@ def TCPSimulator():
     client.server = server
     server.client = client
     client.queueRequestMessage(eventQueue, 0)
+    # server.queueTimeoutMessage(eventQueue)
+    # client.queueRequestMessage()
     while not eventQueue.isEmpty():
         e,t = eventQueue.dequeueWithPriority()
         if EVENT_TRACE:
@@ -65,7 +67,7 @@ class TCPClient:
 
     def __init__(self):
         """Initializes the client structure."""
-
+        self.awaitingAck = {}
 
     def requestMessage(self, eventQueue, t):
         """Initiates transmission of a message requested from the user."""
@@ -75,6 +77,7 @@ class TCPClient:
             self.msgBytes = msg.encode("UTF-8")
             self.seq = 0
             self.ack = 0
+    
             self.sendNextPacket(eventQueue, t)
 
     def sendNextPacket(self, eventQueue, t):
@@ -84,11 +87,11 @@ class TCPClient:
         p = TCPPacket(seq=self.seq, ack=self.ack, ACK=True, data=data)
         if self.seq + nBytes == len(self.msgBytes):
             p.FIN = True
-        
-    #pt 2a,,, Not sure if it should be both of these
+        self.awaitingAck[checksum16(p.toBytes())] = p
         if keepPacketBool():
             e = ReceivePacketEvent(self.server, p)
             eventQueue.enqueue(e, t + TRANSMISSION_DELAY)
+        self.queueTimeoutMessage(p,eventQueue,t)   
         if p.FIN:
             self.queueRequestMessage(eventQueue, t + TIMEOUT)
 
@@ -103,6 +106,8 @@ class TCPClient:
         """Enqueues a RequestMessageEvent at time t."""
         e = RequestMessageEvent(self)
         eventQueue.enqueue(e, t)
+
+
 
 class TCPServer:
     """
@@ -122,7 +127,7 @@ class TCPServer:
         self.msgBytes.extend(p.data)
         self.seq = p.ack
         self.ack = p.seq + len(p.data)
-        reply = TCPPacket(seq=self.seq, ack=self.ack, ACK=True)
+        reply = TCPPacket(seq=self.seq, ack=self.ack, ACK=True, checksum = ~checksum16(p.toBytes()))
         if p.FIN:
             reply.FIN = True
             print("Server receives \"" + self.msgBytes.decode("UTF-8") + "\"")
@@ -135,6 +140,9 @@ class TCPServer:
         self.msgBytes = bytearray()
         self.ack = 0
 
+    def queueTimeoutMessage(self,packet,eventQueue,t):
+        event = TimeoutEvent(packet)
+        eventQueue.enqueue(event,TIMEOUT)
 
 class TCPEvent:
     """
@@ -148,6 +156,24 @@ class TCPEvent:
 
     def dispatch(self, eventQueue, t):
         raise Error("dispatch must be implemented in the subclasses")
+
+class TimeoutEvent(TCPEvent):
+    '''
+    For pt 2.1
+    '''
+    def __init__(self,handler,packet):
+        """Each subclass should call this __init__ method."""
+        TCPEvent.__init__(self)
+        self.handler = handler
+        self.packet = packet
+    def dispatch(self, eventQueue, t):
+        #if the thing has been ACK or FIN, do nothing , otherwise ERROR
+        if self.awaitingAck[self.checksum]:
+            self.handler.ReceivePacket(packet, eventQueue, t)
+            print("this event has  timed out  ") 
+        else:
+            pass
+
 
 
 class RequestMessageEvent(TCPEvent):
@@ -167,6 +193,8 @@ class RequestMessageEvent(TCPEvent):
 
     def dispatch(self, eventQueue, t):
         self.client.requestMessage(eventQueue, t)
+
+
 
 
 class ReceivePacketEvent(TCPEvent):
@@ -195,6 +223,7 @@ def keepPacketBool():
         return False
     else:
         return True 
+
 
 # Startup code
 
